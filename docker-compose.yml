@@ -1,0 +1,51 @@
+version: "3.9"
+services:
+  app:
+    build: .
+    container_name: alpha_app
+    env_file:
+      - ./config/env.example
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://alpha_user:alpha_pass@db:5432/alpha_db
+    depends_on:
+      - db
+    ports:
+      - "8000:8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+
+  db:
+    image: postgres:15
+    platform: linux/amd64
+    container_name: alpha_db
+    environment:
+      - POSTGRES_USER=alpha_user
+      - POSTGRES_PASSWORD=alpha_pass
+      - POSTGRES_DB=alpha_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U alpha_user -d alpha_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4:8
+    platform: linux/amd64
+    container_name: alpha_pgadmin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@example.com
+      - PGADMIN_DEFAULT_PASSWORD=admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+
