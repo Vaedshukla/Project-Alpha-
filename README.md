@@ -1,7 +1,7 @@
 
-  # Dark-Themed User Interface
+  # Web Dashboard UI Design
 
-  This is a code bundle for Dark-Themed User Interface. The original project is available at https://www.figma.com/design/MR5uiZ5hXbIk9zfjhsib8f/Dark-Themed-User-Interface.
+  This is a code bundle for Web Dashboard UI Design. The original project is available at https://www.figma.com/design/2HEGIA0atQV7HO3NDE7vYB/Web-Dashboard-UI-Design.
 
   ## Running the code
 
