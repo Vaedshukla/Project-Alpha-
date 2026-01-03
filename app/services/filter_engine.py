@@ -3,6 +3,7 @@ import socket
 from dataclasses import dataclass
 from datetime import datetime, time
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,10 @@ from app.models.admin_action import AdminAction
 from app.models.browsing_history import BrowsingHistory
 from app.services.email_service import send_email
 
+# Simple in-memory cache (can be replaced with Redis)
+_classification_cache: Dict[str, tuple] = {}
+_cache_ttl_seconds = 300  # 5 minutes
+
 
 @dataclass
 class EvaluationResult:
@@ -24,11 +29,45 @@ class EvaluationResult:
 
 def _extract_domain(url: str) -> str:
     try:
-        # naive extraction; rely on urlparse in future if needed
-        host = url.split("//", 1)[-1].split("/", 1)[0]
-        return host.lower()
+        parsed = urlparse(url)
+        return (parsed.netloc or parsed.path.split("/")[0]).lower()
     except Exception:
-        return url
+        try:
+            host = url.split("//", 1)[-1].split("/", 1)[0]
+            return host.lower()
+        except Exception:
+            return url
+
+
+def _heuristic_classify(url: str, domain: str) -> str:
+    """Heuristic classifier using keywords and patterns."""
+    url_lower = url.lower()
+    domain_lower = domain.lower()
+    
+    # Adult content keywords
+    adult_keywords = ["porn", "xxx", "adult", "sex", "nude"]
+    if any(kw in url_lower or kw in domain_lower for kw in adult_keywords):
+        return "C"
+    
+    # Social media domains (time-based rules apply)
+    social_domains = ["facebook.com", "instagram.com", "tiktok.com", "x.com", "twitter.com", "snapchat.com", "reddit.com"]
+    if any(sd in domain_lower for sd in social_domains):
+        if _within_block_hours(datetime.utcnow()):
+            return "B"
+        return "A"
+    
+    # Gaming keywords
+    gaming_keywords = ["steam", "epic games", "battle.net", "game"]
+    if any(kw in url_lower or kw in domain_lower for kw in gaming_keywords):
+        return "B"
+    
+    # Education keywords (whitelist)
+    edu_keywords = ["edu", "khan academy", "coursera", "edx", "scholar"]
+    if any(kw in url_lower or kw in domain_lower for kw in edu_keywords):
+        return "A"
+    
+    # Default: allow
+    return "A"
 
 
 def _match_rule(url: str, domain: str, rule: BlockedSite) -> bool:
@@ -121,3 +160,47 @@ async def enforce_action(db: AsyncSession, evaluation: EvaluationResult, device:
 
     return {"allowed": True}
 
+
+async def classify_request(db: AsyncSession, url: str, user_id: str) -> Dict[str, Any]:
+    """
+    Classify a URL request into category A, B, or C.
+    Returns standardized response with category, reason, timestamp.
+    """
+    # Check cache first
+    cache_key = f"{user_id}:{url}"
+    if cache_key in _classification_cache:
+        cached_result, cached_time = _classification_cache[cache_key]
+        if (datetime.utcnow() - cached_time).total_seconds() < _cache_ttl_seconds:
+            return cached_result
+    
+    domain = _extract_domain(url)
+    timestamp = datetime.utcnow()
+    
+    # Check blocked_sites table (site_categories)
+    matched = await _find_matching_rule(db, url, domain)
+    if matched:
+        category = matched.category.value
+        reason = matched.reason or f"Matched rule: {matched.url_pattern}"
+        result = {
+            "category": category,
+            "reason": reason,
+            "timestamp": timestamp,
+            "matched_pattern": matched.url_pattern
+        }
+        # Cache result
+        _classification_cache[cache_key] = (result, timestamp)
+        return result
+    
+    # Use heuristic classifier
+    category = _heuristic_classify(url, domain)
+    reason = "Heuristic classification" if category != "A" else "No restrictions"
+    result = {
+        "category": category,
+        "reason": reason,
+        "timestamp": timestamp,
+        "matched_pattern": None
+    }
+    
+    # Cache result
+    _classification_cache[cache_key] = (result, timestamp)
+    return result

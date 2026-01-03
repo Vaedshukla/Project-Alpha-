@@ -46,6 +46,18 @@ services:
       - db
     restart: unless-stopped
 
+  worker:
+    build: .
+    container_name: alpha_worker
+    env_file:
+      - ./config/env.example
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://alpha_user:alpha_pass@db:5432/alpha_db
+    depends_on:
+      - db
+    command: python -c "from app.core.scheduler import setup_scheduler; import asyncio; setup_scheduler(); asyncio.get_event_loop().run_forever()"
+    restart: unless-stopped
+
 volumes:
   pgdata:
 
