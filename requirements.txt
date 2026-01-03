@@ -16,4 +16,3 @@ pytest-asyncio==0.24.0
 psycopg[binary]==3.2.3
 APScheduler==3.10.4
 scikit-learn==1.5.2
-
